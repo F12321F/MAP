@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f766e" />
+  <title>旅行足跡地圖</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <header class="topbar">
+    <h1>🧭 旅行足跡地圖</h1>
+    <div class="region-switch" role="tablist" aria-label="地圖範圍">
+      <button data-region="asia" class="active">亞洲</button>
+      <button data-region="europe">歐洲</button>
+      <button data-region="americas">美洲</button>
+    </div>
+  </header>
+
+  <aside class="panel" id="panel">
+    <button class="panel-toggle" id="panelToggle" aria-label="展開/收合面板">▾</button>
+
+    <section class="stats">
+      <div><span id="statDistance">0.00</span><small>公里</small></div>
+      <div><span id="statPoints">0</span><small>足跡點</small></div>
+      <div><span id="statTime">00:00</span><small>記錄時間</small></div>
+    </section>
+
+    <div class="status" id="status">尚未開始記錄</div>
+
+    <section class="controls">
+      <button id="btnRecord" class="primary">▶ 開始記錄</button>
+      <button id="btnLocate" title="定位到目前位置">◎ 定位</button>
+      <button id="btnDemo" title="模擬一段旅程（測試用）">✈ 模擬旅程</button>
+    </section>
+
+    <section class="trips">
+      <div class="trips-head">
+        <h2>我的旅程</h2>
+        <label class="file-btn" title="匯入 GPX 檔">匯入 GPX<input type="file" id="gpxInput" accept=".gpx,application/gpx+xml" hidden /></label>
+      </div>
+      <ul id="tripList"></ul>
+    </section>
+
+    <section class="export">
+      <h2>下載軌跡 PDF</h2>
+      <label>範圍
+        <select id="pdfRange">
+          <option value="asia">亞洲</option>
+          <option value="europe">歐洲</option>
+          <option value="americas">美洲</option>
+          <option value="track">依軌跡自動縮放</option>
+        </select>
+      </label>
+      <label>標題 <input id="pdfTitle" type="text" value="我的旅行足跡" maxlength="40" /></label>
+      <button id="btnPdf" class="primary">⬇ 下載 PDF</button>
+    </section>
+  </aside>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
