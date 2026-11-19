@@ -41,6 +41,39 @@
         <label class="file-btn" title="匯入 GPX 檔">匯入 GPX<input type="file" id="gpxInput" accept=".gpx,application/gpx+xml" hidden /></label>
       </div>
       <ul id="tripList"></ul>
+      <details class="flight-form" id="flightForm">
+        <summary>✈ 新增飛行段</summary>
+        <label>出發 <select id="flightFrom"></select></label>
+        <label>抵達 <select id="flightTo"></select></label>
+        <label>起飛 <input type="datetime-local" id="flightTime" /></label>
+        <button id="btnAddFlight" class="primary">新增飛行段</button>
+        <p class="hint">搭機時沒有記錄到也沒關係，手動補上就會畫出飛行弧線。若同一段記錄中兩點相距超過 100 公里，也會自動判定為飛行。</p>
+      </details>
+    </section>
+
+    <section class="settings">
+      <h2>設定</h2>
+      <div class="avatar-row">
+        <div id="avatarPreview"></div>
+        <div class="avatar-ctrl">
+          <div class="label">停留點頭像</div>
+          <div class="avatar-btns">
+            <label class="file-btn btn">上傳照片<input type="file" id="avatarFile" accept="image/*" hidden /></label>
+            <input id="avatarEmoji" type="text" maxlength="8" placeholder="或輸入表情" aria-label="表情符號頭像" />
+            <button id="avatarReset" title="還原為 📍">還原</button>
+          </div>
+        </div>
+      </div>
+      <label class="inline">停留多久算一個景點
+        <select id="minStay">
+          <option value="5">5 分鐘</option>
+          <option value="10">10 分鐘</option>
+          <option value="15">15 分鐘</option>
+          <option value="20">20 分鐘</option>
+          <option value="30">30 分鐘</option>
+          <option value="60">1 小時</option>
+        </select>
+      </label>
     </section>
 
     <section class="export">
