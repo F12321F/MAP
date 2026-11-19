@@ -13,11 +13,9 @@
 
   <header class="topbar">
     <h1>🧭 旅行足跡地圖</h1>
-    <div class="region-switch" role="tablist" aria-label="地圖範圍">
-      <button data-region="asia" class="active">亞洲</button>
-      <button data-region="europe">歐洲</button>
-      <button data-region="americas">美洲</button>
-    </div>
+    <label class="city-switch">📍
+      <select id="citySelect" aria-label="選擇城市"></select>
+    </label>
   </header>
 
   <aside class="panel" id="panel">
@@ -49,9 +47,8 @@
       <h2>下載軌跡 PDF</h2>
       <label>範圍
         <select id="pdfRange">
-          <option value="asia">亞洲</option>
-          <option value="europe">歐洲</option>
-          <option value="americas">美洲</option>
+          <option value="city" id="pdfCityOpt">目前城市</option>
+          <option value="view">目前地圖畫面</option>
           <option value="track">依軌跡自動縮放</option>
         </select>
       </label>

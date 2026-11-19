@@ -3,11 +3,43 @@
   'use strict';
 
   // ---------- 設定 ----------
-  const REGIONS = {
-    asia:     { name: '亞洲', bounds: [[-11, 25], [77, 180]] },
-    europe:   { name: '歐洲', bounds: [[34, -25], [72, 45]] },
-    americas: { name: '美洲', bounds: [[-56, -170], [72, -30]] },
-  };
+  // 城市／地區範圍：bounds = [[南緯, 西經], [北緯, 東經]]，要新增城市只要在這裡加一行
+  const CITY_GROUPS = [
+    { country: '日本', cities: {
+      tokyo:    { name: '東京',   bounds: [[35.53, 139.56], [35.82, 139.92]] },
+      osaka:    { name: '大阪',   bounds: [[34.58, 135.38], [34.78, 135.60]] },
+      kyoto:    { name: '京都',   bounds: [[34.93, 135.66], [35.08, 135.83]] },
+      nagoya:   { name: '名古屋', bounds: [[35.08, 136.82], [35.25, 137.00]] },
+      hokkaido: { name: '北海道', bounds: [[41.35, 139.30], [45.60, 145.90]] },
+      sapporo:  { name: '札幌',   bounds: [[42.95, 141.20], [43.15, 141.50]] },
+      fukuoka:  { name: '福岡',   bounds: [[33.53, 130.30], [33.68, 130.50]] },
+      okinawa:  { name: '沖繩',   bounds: [[26.05, 127.60], [26.90, 128.35]] },
+    } },
+    { country: '韓國', cities: {
+      seoul:    { name: '首爾',   bounds: [[37.42, 126.80], [37.70, 127.18]] },
+      busan:    { name: '釜山',   bounds: [[35.03, 128.85], [35.30, 129.25]] },
+      jeju:     { name: '濟州島', bounds: [[33.10, 126.10], [33.60, 127.00]] },
+      gyeongju: { name: '慶州',   bounds: [[35.75, 129.15], [35.90, 129.35]] },
+    } },
+    { country: '台灣', cities: {
+      taipei:   { name: '台北',   bounds: [[24.96, 121.45], [25.21, 121.67]] },
+      taichung: { name: '台中',   bounds: [[24.07, 120.55], [24.27, 120.78]] },
+      tainan:   { name: '台南',   bounds: [[22.90, 120.10], [23.10, 120.30]] },
+      kaohsiung:{ name: '高雄',   bounds: [[22.55, 120.25], [22.75, 120.40]] },
+      hualien:  { name: '花蓮',   bounds: [[23.85, 121.50], [24.20, 121.65]] },
+    } },
+    { country: '其他', cities: {
+      hongkong: { name: '香港',   bounds: [[22.15, 113.83], [22.56, 114.43]] },
+      macau:    { name: '澳門',   bounds: [[22.10, 113.52], [22.22, 113.60]] },
+      bangkok:  { name: '曼谷',   bounds: [[13.60, 100.40], [13.90, 100.70]] },
+      chiangmai:{ name: '清邁',   bounds: [[18.72, 98.92], [18.85, 99.05]] },
+      singapore:{ name: '新加坡', bounds: [[1.20, 103.60], [1.48, 104.05]] },
+      hanoi:    { name: '河內',   bounds: [[20.95, 105.75], [21.10, 105.90]] },
+      hcmc:     { name: '胡志明市', bounds: [[10.70, 106.60], [10.85, 106.80]] },
+    } },
+  ];
+  const CITIES = Object.assign({}, ...CITY_GROUPS.map((g) => g.cities));
+  const DEFAULT_CITY = 'tokyo';
   const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
   const TILE_SUBDOMAINS = ['a', 'b', 'c', 'd'];
   const ATTRIBUTION = '© OpenStreetMap contributors © CARTO';
@@ -28,15 +60,21 @@
   L.tileLayer(TILE_URL, { subdomains: TILE_SUBDOMAINS, attribution: ATTRIBUTION, maxZoom: 19 }).addTo(map);
   const meMarker = L.marker([0, 0], { icon: L.divIcon({ className: '', html: '<div class="me-dot"></div>', iconSize: [16, 16] }) });
 
-  let currentRegion = localStorage.getItem('travel-trace-region') || 'asia';
-  setRegion(currentRegion, false);
-
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
   const btnRecord = $('btnRecord');
+  const citySelect = $('citySelect');
 
-  document.querySelectorAll('.region-switch button').forEach((b) =>
-    b.addEventListener('click', () => setRegion(b.dataset.region, true)));
+  CITY_GROUPS.forEach((g) => {
+    const og = document.createElement('optgroup');
+    og.label = g.country;
+    Object.entries(g.cities).forEach(([key, c]) => og.appendChild(new Option(c.name, key)));
+    citySelect.appendChild(og);
+  });
+  let currentCity = localStorage.getItem('travel-trace-city');
+  if (!CITIES[currentCity]) currentCity = DEFAULT_CITY;
+  setCity(currentCity, false);
+  citySelect.addEventListener('change', () => setCity(citySelect.value, true));
   btnRecord.addEventListener('click', () => (recording ? stopRecording() : startRecording()));
   $('btnLocate').addEventListener('click', locateOnce);
   $('btnDemo').addEventListener('click', runDemo);
@@ -48,15 +86,13 @@
   renderTripList();
   updateStats();
 
-  // ---------- 區域 ----------
-  function setRegion(key, animate) {
-    currentRegion = key;
-    localStorage.setItem('travel-trace-region', key);
-    document.querySelectorAll('.region-switch button').forEach((b) =>
-      b.classList.toggle('active', b.dataset.region === key));
-    const sel = document.getElementById('pdfRange');
-    if (sel && sel.value !== 'track') sel.value = key;
-    map.fitBounds(REGIONS[key].bounds, { animate });
+  // ---------- 城市 ----------
+  function setCity(key, animate) {
+    currentCity = key;
+    localStorage.setItem('travel-trace-city', key);
+    citySelect.value = key;
+    $('pdfCityOpt').textContent = `目前城市（${CITIES[key].name}）`;
+    map.fitBounds(CITIES[key].bounds, { animate });
   }
 
   // ---------- 記錄 ----------
@@ -149,14 +185,16 @@
   function runDemo() {
     if (recording) return toast('請先停止記錄');
     if (demoTimer) return stopDemo();
-    const routes = {
-      asia: [[25.033, 121.565], [24.80, 120.97], [24.147, 120.673], [23.48, 120.45], [22.997, 120.212], [22.627, 120.301]],
-      europe: [[48.856, 2.352], [50.85, 4.35], [52.37, 4.90], [52.52, 13.405], [50.075, 14.437], [48.208, 16.373]],
-      americas: [[40.713, -74.006], [39.95, -75.165], [38.907, -77.037], [35.227, -80.843], [33.749, -84.388], [25.762, -80.192]],
-    };
-    const pts = densify(routes[currentRegion], 40);
-    const trip = newTrip(`模擬旅程・${REGIONS[currentRegion].name}`);
-    map.fitBounds(L.latLngBounds(routes[currentRegion]).pad(0.3));
+    // 在目前城市範圍內繞一圈
+    const [[s0, w0], [n0, e0]] = CITIES[currentCity].bounds;
+    const cLat = (s0 + n0) / 2, cLng = (w0 + e0) / 2, rLat = (n0 - s0) * 0.32, rLng = (e0 - w0) * 0.32;
+    const route = [0, 1, 2, 3, 4, 5, 6].map((k) => {
+      const a = (k / 6) * Math.PI * 1.7 - Math.PI / 2, f = 0.55 + 0.45 * Math.abs(Math.sin(k * 1.3));
+      return [cLat + Math.sin(a) * rLat * f, cLng + Math.cos(a) * rLng * f];
+    });
+    const pts = densify(route, 30, Math.min(n0 - s0, e0 - w0) * 0.02);
+    const trip = newTrip(`模擬旅程・${CITIES[currentCity].name}`);
+    map.fitBounds(CITIES[currentCity].bounds);
     let i = 0;
     const t0 = Date.now() - pts.length * 60000;
     $('btnDemo').textContent = '■ 停止模擬';
@@ -174,13 +212,13 @@
     save();
     $('btnDemo').textContent = '✈ 模擬旅程';
   }
-  function densify(route, stepsPerLeg) {
+  function densify(route, stepsPerLeg, amp) {
     const out = [];
     for (let k = 0; k < route.length - 1; k++) {
       const [a, b] = [route[k], route[k + 1]];
       for (let s = 0; s < stepsPerLeg; s++) {
         const f = s / stepsPerLeg;
-        const wiggle = Math.sin(f * Math.PI * 3) * 0.04;
+        const wiggle = Math.sin(f * Math.PI * 3) * amp;
         out.push([a[0] + (b[0] - a[0]) * f + wiggle, a[1] + (b[1] - a[1]) * f - wiggle]);
       }
     }
@@ -298,10 +336,12 @@
       if (range === 'track') {
         const all = L.latLngBounds(vis.flatMap((t) => t.points.map((p) => [p[0], p[1]])));
         bounds = padBounds(all, 0.15);
+      } else if (range === 'view') {
+        bounds = map.getBounds();
       } else {
-        bounds = L.latLngBounds(REGIONS[range].bounds);
+        bounds = L.latLngBounds(CITIES[currentCity].bounds);
       }
-      const mapCanvas = await renderMapCanvas(bounds, vis, range === 'track' ? 17 : 7);
+      const mapCanvas = await renderMapCanvas(bounds, vis, 17);
       const page = composePage(mapCanvas, vis, range);
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ orientation: page.width >= page.height ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
@@ -310,7 +350,7 @@
       const w = page.width * s, h = page.height * s;
       pdf.addImage(page.toDataURL('image/jpeg', 0.92), 'JPEG', (pw - w) / 2, (ph - h) / 2, w, h);
       pdf.setProperties({ title: $('pdfTitle').value || '旅行足跡', creator: 'Travel Trace Map' });
-      pdf.save(`travel-trace_${range}_${fileStamp(Date.now())}.pdf`);
+      pdf.save(`travel-trace_${range === 'city' ? currentCity : range}_${fileStamp(Date.now())}.pdf`);
       toast('PDF 已下載');
     } catch (err) {
       console.error(err);
@@ -411,7 +451,7 @@
     const allPts = visTrips.flatMap((t) => t.points);
     const times = allPts.map((p) => p[2]).filter(Boolean);
     const km = visTrips.reduce((s, t) => s + tripDistanceKm(t), 0);
-    const rangeName = range === 'track' ? '依軌跡範圍' : REGIONS[range].name;
+    const rangeName = { track: '依軌跡範圍', view: '自訂畫面' }[range] || CITIES[currentCity].name;
     const dateStr = times.length ? `${formatDate(Math.min(...times))} – ${formatDate(Math.max(...times))}` : '—';
     ctx.font = font(20); ctx.fillStyle = '#4b5563';
     ctx.fillText(`範圍：${rangeName}　｜　總距離：${km.toFixed(2)} 公里　｜　旅程數：${visTrips.length}　｜　期間：${dateStr}`, PAD, 84);
