@@ -1,5 +1,5 @@
 /* 旅行足跡地圖 Service Worker：讓 App 可安裝、離線也能開啟 */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL_CACHE = `shell-${VERSION}`;
 const TILE_CACHE = 'tiles-v1';
 const MAX_TILES = 3000; // 最多快取的地圖圖磚數（約 50–100 MB）
@@ -27,7 +27,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin === self.location.origin) e.respondWith(networkFirst(req));
   // 地圖圖磚：只快取跨網域（cors）請求；一般模式的請求交給瀏覽器自己處理
-  else if (/(basemaps\.cartocdn\.com|tile\.openstreetmap\.org)$/.test(url.hostname) && req.mode === 'cors') e.respondWith(tileCacheFirst(req));
+  else if (/(tile\.openstreetmap\.org|tile\.openstreetmap\.fr|server\.arcgisonline\.com)$/.test(url.hostname) && req.mode === 'cors') e.respondWith(tileCacheFirst(req));
   // 其他（站名查詢等）不攔截，直接走網路
 });
 
@@ -36,7 +36,7 @@ async function networkFirst(req) {
   const cache = await caches.open(SHELL_CACHE);
   try {
     const res = await Promise.race([
-      fetch(req),
+      fetch(req, { cache: 'no-cache' }), // 不用瀏覽器的舊快取，確保更新立刻生效
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
     ]);
     if (res.ok) cache.put(req, res.clone());

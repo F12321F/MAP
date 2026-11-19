@@ -58,7 +58,7 @@ nara: { name: '奈良', bounds: [[34.62, 135.75], [34.73, 135.88]] },
 
 - 瀏覽器在螢幕關閉或切到背景時可能暫停定位；記錄期間程式會嘗試保持螢幕常亮（Wake Lock）。
 - 軌跡只存在目前這台裝置的瀏覽器中，清除瀏覽資料會一併刪除；建議重要旅程匯出 GPX 備份。
-- 底圖：© OpenStreetMap contributors © CARTO。
+- 底圖：OpenStreetMap（預設）、OpenStreetMap HOT、Esri 街道圖，都不需要 API 金鑰，可在設定中切換。
 
 ## 技術
 

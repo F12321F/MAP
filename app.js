@@ -44,9 +44,11 @@
   const DEFAULT_CITY = 'tokyo';
 
   // 地圖來源：第一個無法載入時會自動換下一個
+  // （不需要 API 金鑰的免費來源）
   const BASEMAPS = {
-    carto: { name: 'CARTO（清爽）', url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', subdomains: ['a', 'b', 'c', 'd'], retina: '@2x', maxZoom: 20, attribution: '© OpenStreetMap contributors © CARTO' },
-    osm:   { name: 'OpenStreetMap（標準）', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: [], retina: '', maxZoom: 19, attribution: '© OpenStreetMap contributors' },
+    osm:  { name: 'OpenStreetMap（標準）', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: [], retina: '', maxZoom: 19, attribution: '© OpenStreetMap contributors' },
+    hot:  { name: 'OpenStreetMap（柔和）', url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', subdomains: ['a', 'b', 'c'], retina: '', maxZoom: 19, attribution: '© OpenStreetMap contributors, HOT' },
+    esri: { name: 'Esri 街道圖', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', subdomains: [], retina: '', maxZoom: 19, attribution: 'Tiles © Esri' },
   };
   const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
   const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
@@ -68,7 +70,7 @@
 
   // ---------- 狀態 ----------
   let trips = loadJSON(STORAGE_KEY, []);
-  const settings = Object.assign({ avatar: DEFAULT_AVATAR, minStay: 15, basemap: 'carto' }, loadJSON(SETTINGS_KEY, {}));
+  const settings = Object.assign({ avatar: DEFAULT_AVATAR, minStay: 15, basemap: 'osm' }, loadJSON(SETTINGS_KEY, {}));
   const placeCache = loadJSON(PLACES_KEY, {});
   let recording = null;   // { trip, watchId, startedAt, timer, wakeLock }
   let demoTimer = null;
@@ -1149,7 +1151,7 @@
     Object.entries(BASEMAPS).forEach(([k, b]) => $('basemapSelect').appendChild(new Option(b.name, k)));
     $('basemapSelect').addEventListener('change', () => setBasemap($('basemapSelect').value, true));
     $('tileRetry').addEventListener('click', () => setBasemap(settings.basemap));
-    setBasemap(BASEMAPS[settings.basemap] ? settings.basemap : 'carto');
+    setBasemap(BASEMAPS[settings.basemap] ? settings.basemap : 'osm');
     currentCity = localStorage.getItem('travel-trace-city');
     if (!CITIES[currentCity]) currentCity = DEFAULT_CITY;
     setCity(currentCity, false);
