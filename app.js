@@ -43,9 +43,11 @@
   const CITIES = Object.assign({}, ...CITY_GROUPS.map((g) => g.cities));
   const DEFAULT_CITY = 'tokyo';
 
-  const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
-  const TILE_SUBDOMAINS = ['a', 'b', 'c', 'd'];
-  const ATTRIBUTION = '© OpenStreetMap contributors © CARTO';
+  // 地圖來源：第一個無法載入時會自動換下一個
+  const BASEMAPS = {
+    carto: { name: 'CARTO（清爽）', url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', subdomains: ['a', 'b', 'c', 'd'], retina: '@2x', maxZoom: 20, attribution: '© OpenStreetMap contributors © CARTO' },
+    osm:   { name: 'OpenStreetMap（標準）', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: [], retina: '', maxZoom: 19, attribution: '© OpenStreetMap contributors' },
+  };
   const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
   const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
   const COLORS = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
@@ -66,7 +68,7 @@
 
   // ---------- 狀態 ----------
   let trips = loadJSON(STORAGE_KEY, []);
-  const settings = Object.assign({ avatar: DEFAULT_AVATAR, minStay: 15 }, loadJSON(SETTINGS_KEY, {}));
+  const settings = Object.assign({ avatar: DEFAULT_AVATAR, minStay: 15, basemap: 'carto' }, loadJSON(SETTINGS_KEY, {}));
   const placeCache = loadJSON(PLACES_KEY, {});
   let recording = null;   // { trip, watchId, startedAt, timer, wakeLock }
   let demoTimer = null;
@@ -81,7 +83,8 @@
   // ---------- 地圖 ----------
   const map = L.map('map', { zoomControl: false, worldCopyJump: true, minZoom: 2 });
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
-  L.tileLayer(TILE_URL, { subdomains: TILE_SUBDOMAINS, attribution: ATTRIBUTION, maxZoom: 19, crossOrigin: true }).addTo(map);
+  let tileLayer = null, basemapKey = null;
+
   const meMarker = L.marker([0, 0], { icon: L.divIcon({ className: '', html: '<div class="me-dot"></div>', iconSize: [16, 16] }), zIndexOffset: 1000 });
 
   // ---------- DOM ----------
@@ -373,6 +376,48 @@
   const S2T = Object.fromEntries('云雲 东東 车車 馆館 场場 国國 门門 桥橋 广廣 汉漢 区區 湾灣 岛島 龙龍 庆慶 会會 长長 乐樂 华華 寿壽 冈岡 宫宮 涩澀 浅淺 驿驛 铁鐵 线線 机機 园園 关關 万萬 丰豐 叶葉 历歷 圣聖 钟鐘 阳陽 阴陰 凤鳳 盘盤 滨濱 罗羅 兰蘭 宁寧 爱愛 义義 马馬 鱼魚 鸟鳥 鹤鶴 尔爾 济濟 镇鎮 坛壇 应應 达達 汤湯 温溫 滩灘 冲沖 绳繩 纳納 览覽 观觀 湿濕 泽澤 荣榮 仓倉 条條 县縣 厅廳 楼樓 场場 剧劇 艺藝 术術 馆館 书書 图圖 际際 机機 场場 码碼 头頭 东東 鸭鴨 绿綠 红紅 滨濱 辽遼 显顯 宝寶 庙廟 层層 宾賓 饭飯 购購 广廣 场場 学學 医醫 运運 动動 体體 竞競 赛賽 莲蓮 兴興 开開 发發 东東 岭嶺 峡峽 纪紀 农農 渔漁 蓝藍 黄黃 边邊 过過 远遠 进進 连連 还還 这這 环環 现現 电電 话話 号號'
     .split(' ').map((p) => [p[0], p[1]]));
   function toTrad(s) { return s ? [...s].map((c) => S2T[c] || c).join('') : s; }
+
+  // ---------- 地圖底圖 ----------
+  // 依序嘗試：選定來源（允許跨網域，可離線快取與輸出 PDF）→ 同來源一般模式 → 其他來源
+  function setBasemap(key, manual = false) {
+    const order = [key, ...Object.keys(BASEMAPS).filter((k) => k !== key)];
+    const attempts = order.flatMap((k) => [{ key: k, cors: true }, { key: k, cors: false }]);
+    $('tileWarn').hidden = true;
+    tryAttempt(0);
+    function tryAttempt(i) {
+      if (tileLayer) map.removeLayer(tileLayer);
+      if (i >= attempts.length) {
+        $('tileWarn').hidden = false;
+        basemapKey = key;
+        $('basemapSelect').value = key;
+        return;
+      }
+      const { key: k, cors } = attempts[i];
+      const bm = BASEMAPS[k];
+      basemapKey = k;
+      $('basemapSelect').value = k;
+      let ok = 0, err = 0, done = false;
+      tileLayer = L.tileLayer(bm.url, {
+        subdomains: bm.subdomains.length ? bm.subdomains : 'abc', attribution: bm.attribution,
+        maxZoom: 19, maxNativeZoom: bm.maxZoom, crossOrigin: cors || undefined,
+      });
+      tileLayer.on('tileload', () => {
+        ok++;
+        if (!done && ok >= 2) {
+          done = true;
+          if (k !== key && navigator.onLine) toast(`${BASEMAPS[key].name} 無法連線，已改用 ${bm.name}`);
+          if (navigator.onLine && settings.basemap !== k) { settings.basemap = k; saveSettings(); }
+        }
+      });
+      tileLayer.on('tileerror', () => {
+        err++;
+        if (!done && !ok && err >= 4) { done = true; tryAttempt(i + 1); }
+      });
+      tileLayer.addTo(map);
+      tileLayer.bringToBack();
+    }
+    if (manual) { settings.basemap = key; saveSettings(); }
+  }
 
   // ---------- 手動補畫 ----------
   // mode = 'gap'：補在 a、b 兩點之間；'append'：從終點 a 接著往後畫
@@ -879,7 +924,8 @@
     for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x1 - 1) / 256); tx++) {
       for (let ty = Math.max(0, Math.floor(y0 / 256)); ty <= Math.min(n - 1, Math.floor((y1 - 1) / 256)); ty++) {
         const wrapped = ((tx % n) + n) % n;
-        const url = TILE_URL.replace('{s}', TILE_SUBDOMAINS[(tx + ty) & 3]).replace('{z}', z).replace('{x}', wrapped).replace('{y}', ty).replace('.png', '@2x.png');
+        const bm = BASEMAPS[basemapKey];
+        const url = bm.url.replace('{s}', bm.subdomains[(tx + ty) % (bm.subdomains.length || 1)] || '').replace('{z}', z).replace('{x}', wrapped).replace('{y}', ty).replace('{r}', bm.retina);
         jobs.push(loadImage(url).then((img) => ctx.drawImage(img, tx * 256 - x0, ty * 256 - y0, 256, 256)).catch(() => {}));
       }
     }
@@ -1025,7 +1071,7 @@
       });
     }
     ctx.font = font(14); ctx.fillStyle = '#9ca3af'; ctx.textAlign = 'right';
-    ctx.fillText(`地圖資料 ${ATTRIBUTION}　｜　產生於 ${formatDate(Date.now())}`, W - PAD, H - PAD + 10 * k);
+    ctx.fillText(`地圖資料 ${BASEMAPS[basemapKey].attribution}　｜　產生於 ${formatDate(Date.now())}`, W - PAD, H - PAD + 10 * k);
     return c;
   }
 
@@ -1100,6 +1146,10 @@
     fillCitySelect($('flightTo'), true);
     $('flightFrom').value = 'taipei';
 
+    Object.entries(BASEMAPS).forEach(([k, b]) => $('basemapSelect').appendChild(new Option(b.name, k)));
+    $('basemapSelect').addEventListener('change', () => setBasemap($('basemapSelect').value, true));
+    $('tileRetry').addEventListener('click', () => setBasemap(settings.basemap));
+    setBasemap(BASEMAPS[settings.basemap] ? settings.basemap : 'carto');
     currentCity = localStorage.getItem('travel-trace-city');
     if (!CITIES[currentCity]) currentCity = DEFAULT_CITY;
     setCity(currentCity, false);

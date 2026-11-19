@@ -75,6 +75,7 @@
           </div>
         </div>
       </div>
+      <label class="inline">地圖來源 <select id="basemapSelect"></select></label>
       <label class="inline">停留多久算一個景點
         <select id="minStay">
           <option value="5">5 分鐘</option>
@@ -100,6 +101,11 @@
       <button id="btnPdf" class="primary">⬇ 下載 PDF</button>
     </section>
   </aside>
+
+  <div class="tile-warn" id="tileWarn" hidden>
+    ⚠ 地圖底圖載入失敗。請確認網路已連線；若在公司或學校網路，可能封鎖了地圖伺服器（basemaps.cartocdn.com、tile.openstreetmap.org），可改用手機行動網路試試。
+    <button id="tileRetry">重試</button>
+  </div>
 
   <div class="draw-bar" id="drawBar" hidden>
     <div class="draw-text" id="drawText"></div>
