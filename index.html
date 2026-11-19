@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f766e" />
   <title>旅行足跡地圖</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="足跡地圖" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -20,6 +26,11 @@
 
   <aside class="panel" id="panel">
     <button class="panel-toggle" id="panelToggle" aria-label="展開/收合面板">▾</button>
+
+    <section class="install-box" id="installBox" hidden>
+      <span>📲 把足跡地圖安裝到手機主畫面</span>
+      <button id="btnInstall" class="primary">安裝</button>
+    </section>
 
     <section class="stats">
       <div><span id="statDistance">0.00</span><small>公里</small></div>
@@ -90,10 +101,33 @@
     </section>
   </aside>
 
+  <div class="draw-bar" id="drawBar" hidden>
+    <div class="draw-text" id="drawText"></div>
+    <label class="draw-end" id="drawEndWrap" hidden>結束時間 <input type="datetime-local" id="drawEnd" /></label>
+    <div class="draw-btns">
+      <button id="drawUndo">↶ 復原</button>
+      <button id="drawCancel">取消</button>
+      <button id="drawDone" class="primary">完成</button>
+    </div>
+  </div>
+
+  <dialog id="stayDialog">
+    <form method="dialog" id="stayForm">
+      <h3>📍 新增停留點</h3>
+      <label>名稱 <input id="stayName" type="text" maxlength="40" placeholder="留空會自動查詢附近站名" /></label>
+      <label>抵達 <input id="stayStart" type="datetime-local" required /></label>
+      <label>離開 <input id="stayEnd" type="datetime-local" required /></label>
+      <div class="dialog-btns">
+        <button value="cancel" formnovalidate>取消</button>
+        <button value="ok" class="primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" hidden></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="vendor/leaflet.js"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

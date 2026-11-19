@@ -73,11 +73,15 @@
   let demoTrip = null;
   let resolveChain = Promise.resolve();
   const layers = new Map(); // trip.id -> L.FeatureGroup
+  const editing = new Set(); // 正在編輯（展開補畫工具）的旅程 id
+  let draw = null;           // 補畫模式狀態
+  let pickStay = null;       // 新增停留點模式：{ trip }
+  let installPrompt = null;
 
   // ---------- 地圖 ----------
   const map = L.map('map', { zoomControl: false, worldCopyJump: true, minZoom: 2 });
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
-  L.tileLayer(TILE_URL, { subdomains: TILE_SUBDOMAINS, attribution: ATTRIBUTION, maxZoom: 19 }).addTo(map);
+  L.tileLayer(TILE_URL, { subdomains: TILE_SUBDOMAINS, attribution: ATTRIBUTION, maxZoom: 19, crossOrigin: true }).addTo(map);
   const meMarker = L.marker([0, 0], { icon: L.divIcon({ className: '', html: '<div class="me-dot"></div>', iconSize: [16, 16] }), zIndexOffset: 1000 });
 
   // ---------- DOM ----------
@@ -110,6 +114,7 @@
   function startRecording() {
     if (!('geolocation' in navigator)) return toast('此瀏覽器不支援定位功能');
     stopDemo();
+    cancelModes();
     const trip = newTrip(`旅程 ${formatDate(Date.now())}`);
     recording = { trip, startedAt: Date.now(), watchId: null, timer: null, wakeLock: null };
     recording.watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
@@ -217,22 +222,21 @@
     toast(`已新增飛行段：${CITIES[from].name} → ${CITIES[to].name}`);
   }
 
-  // 把旅程切成：地面軌跡、飛行段、未記錄段
+  // 把旅程切成：地面軌跡、手動補畫、飛行段、未記錄段（點的第 4 個值為 1 代表手動補畫）
   function segmentsOf(trip) {
-    const ground = [], flights = [], gaps = [];
-    let cur = [];
-    trip.points.forEach((p, i) => {
-      if (i === 0) { cur.push(p); return; }
-      const prev = trip.points[i - 1];
+    const ground = [], manual = [], flights = [], gaps = [];
+    let run = null, runType = null;
+    for (let i = 1; i < trip.points.length; i++) {
+      const prev = trip.points[i - 1], p = trip.points[i];
       const d = haversine(prev[0], prev[1], p[0], p[1]);
-      const dt = p[2] - prev[2];
-      if (trip.flight || d > FLIGHT_MIN_M) { flights.push([prev, p]); flush(); cur = [p]; return; }
-      if (dt > GAP_MIN_MS && d > GAP_MIN_M) { gaps.push([prev, p]); flush(); cur = [p]; return; }
-      cur.push(p);
-    });
-    flush();
-    return { ground, flights, gaps };
-    function flush() { if (cur.length > 1) ground.push(cur); }
+      const type = trip.flight || d > FLIGHT_MIN_M ? 'flight'
+        : prev[3] || p[3] ? 'manual'
+        : p[2] - prev[2] > GAP_MIN_MS && d > GAP_MIN_M ? 'gap' : 'ground';
+      if (type === 'flight' || type === 'gap') { (type === 'flight' ? flights : gaps).push([prev, p]); run = null; continue; }
+      if (!run || runType !== type) { run = [prev]; runType = type; (type === 'manual' ? manual : ground).push(run); }
+      run.push(p);
+    }
+    return { ground, manual, flights, gaps };
   }
 
   // 飛行弧線（在麥卡托平面上以二次貝茲曲線往北彎）
@@ -274,20 +278,27 @@
   function computeStays(trip) {
     if (trip.flight) { trip.stays = []; return; }
     const old = trip.stays || [];
-    trip.stays = detectStays(trip.points, settings.minStay * 60000).map((s) => {
-      const prev = old.find((o) => o.name && haversine(o.lat, o.lng, s.lat, s.lng) < 60);
-      return prev ? { ...s, name: prev.name, local: prev.local, kind: prev.kind } : s;
+    const manual = old.filter((o) => o.manual);
+    const auto = detectStays(trip.points, settings.minStay * 60000).map((s) => {
+      // 保留之前查到的地名、手動改的名稱、被刪除的標記
+      const prev = old.find((o) => !o.manual && haversine(o.lat, o.lng, s.lat, s.lng) < 60 && Math.abs(o.start - s.start) < 30 * 60000);
+      if (!prev) return s;
+      const keep = {};
+      ['name', 'local', 'kind', 'custom', 'dismissed'].forEach((k) => { if (prev[k] !== undefined) keep[k] = prev[k]; });
+      return { ...s, ...keep };
     });
+    trip.stays = [...auto, ...manual].sort((a, b) => a.start - b.start);
   }
+  function visibleStays(trip) { return (trip.stays || []).filter((s) => !s.dismissed); }
 
   function queueResolve(trip) {
-    if (!trip.stays?.some((s) => !s.name)) return;
+    if (!visibleStays(trip).some((s) => !s.name)) return;
     resolveChain = resolveChain.then(() => resolveStays(trip)).catch(() => {});
   }
 
   async function resolveStays(trip) {
     for (const s of trip.stays || []) {
-      if (s.name || !trips.includes(trip)) continue;
+      if (s.name || s.dismissed || !trips.includes(trip)) continue;
       const place = await resolvePlace(s.lat, s.lng);
       if (place) Object.assign(s, place, { failed: false });
       else s.failed = true;
@@ -362,6 +373,135 @@
   const S2T = Object.fromEntries('云雲 东東 车車 馆館 场場 国國 门門 桥橋 广廣 汉漢 区區 湾灣 岛島 龙龍 庆慶 会會 长長 乐樂 华華 寿壽 冈岡 宫宮 涩澀 浅淺 驿驛 铁鐵 线線 机機 园園 关關 万萬 丰豐 叶葉 历歷 圣聖 钟鐘 阳陽 阴陰 凤鳳 盘盤 滨濱 罗羅 兰蘭 宁寧 爱愛 义義 马馬 鱼魚 鸟鳥 鹤鶴 尔爾 济濟 镇鎮 坛壇 应應 达達 汤湯 温溫 滩灘 冲沖 绳繩 纳納 览覽 观觀 湿濕 泽澤 荣榮 仓倉 条條 县縣 厅廳 楼樓 场場 剧劇 艺藝 术術 馆館 书書 图圖 际際 机機 场場 码碼 头頭 东東 鸭鴨 绿綠 红紅 滨濱 辽遼 显顯 宝寶 庙廟 层層 宾賓 饭飯 购購 广廣 场場 学學 医醫 运運 动動 体體 竞競 赛賽 莲蓮 兴興 开開 发發 东東 岭嶺 峡峽 纪紀 农農 渔漁 蓝藍 黄黃 边邊 过過 远遠 进進 连連 还還 这這 环環 现現 电電 话話 号號'
     .split(' ').map((p) => [p[0], p[1]]));
   function toTrad(s) { return s ? [...s].map((c) => S2T[c] || c).join('') : s; }
+
+  // ---------- 手動補畫 ----------
+  // mode = 'gap'：補在 a、b 兩點之間；'append'：從終點 a 接著往後畫
+  function startDraw(trip, mode, a, b = null) {
+    cancelModes();
+    draw = { trip, mode, a, b, pts: [], layer: L.layerGroup().addTo(map) };
+    map.getContainer().classList.add('picking');
+    $('drawEndWrap').hidden = mode !== 'append';
+    if (mode === 'append') $('drawEnd').value = toLocalInput(a[2] + 3600000);
+    $('drawBar').hidden = false;
+    $('panel').classList.add('collapsed');
+    map.fitBounds(L.latLngBounds(b ? [[a[0], a[1]], [b[0], b[1]]] : [[a[0], a[1]]]).pad(0.6), { maxZoom: 16 });
+    updateDrawPreview();
+  }
+  function updateDrawPreview() {
+    const { a, b, pts, layer, mode } = draw;
+    layer.clearLayers();
+    const line = [[a[0], a[1]], ...pts, ...(b ? [[b[0], b[1]]] : [])];
+    L.polyline(line, { color: '#f97316', weight: 5, dashArray: '8 7', interactive: false }).addTo(layer);
+    pts.forEach((p) => L.circleMarker(p, { radius: 6, color: '#fff', weight: 2, fillColor: '#f97316', fillOpacity: 1, interactive: false }).addTo(layer));
+    [a, b].filter(Boolean).forEach((p) => L.circleMarker([p[0], p[1]], { radius: 7, color: '#fff', weight: 2, fillColor: '#111827', fillOpacity: 1, interactive: false }).addTo(layer));
+    $('drawText').textContent = mode === 'gap'
+      ? `補畫 ${formatTime(a[2])}–${formatTime(b[2])}：依序點地圖上經過的地方（已加 ${pts.length} 點），完成後會自動連到下一段`
+      : `從 ${formatTime(a[2])} 的終點接著畫：依序點地圖上經過的地方（已加 ${pts.length} 點）`;
+    $('drawUndo').disabled = !pts.length;
+  }
+  function finishDraw() {
+    const { trip, mode, a, b, pts } = draw;
+    if (!pts.length) return toast('請先在地圖上點出經過的位置');
+    const t0 = a[2];
+    const t1 = mode === 'gap' ? b[2] : Date.parse($('drawEnd').value);
+    if (!(t1 > t0)) return toast('結束時間必須晚於開始時間');
+    // 依距離比例分配時間
+    const chain = [[a[0], a[1]], ...pts, ...(b ? [[b[0], b[1]]] : [])];
+    const cum = [0];
+    for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversine(chain[i - 1][0], chain[i - 1][1], chain[i][0], chain[i][1]));
+    const total = cum[cum.length - 1] || 1;
+    const newPts = pts.map((p, i) => [+p[0].toFixed(6), +p[1].toFixed(6), Math.round(t0 + ((t1 - t0) * cum[i + 1]) / total), 1]);
+    if (mode === 'append') newPts[newPts.length - 1][2] = t1;
+    const idx = trip.points.indexOf(a);
+    trip.points.splice(idx + 1, 0, ...newPts);
+    cancelModes();
+    computeStays(trip); drawTrip(trip); save(); queueResolve(trip);
+    renderTripList(); updateStats();
+    toast(`已補畫 ${newPts.length} 個位置`);
+  }
+
+  // ---------- 停留點編輯 ----------
+  function startPickStay(trip) {
+    cancelModes();
+    pickStay = { trip };
+    map.getContainer().classList.add('picking');
+    $('drawText').textContent = '📍 點地圖選擇停留的位置';
+    $('drawEndWrap').hidden = true;
+    $('drawUndo').hidden = $('drawDone').hidden = true;
+    $('drawBar').hidden = false;
+    $('panel').classList.add('collapsed');
+  }
+  function onPickStay(latlng) {
+    const { trip } = pickStay;
+    cancelModes();
+    // 預設抵達時間 = 軌跡中離點選位置最近的那個點的時間
+    let best = null, bestD = Infinity;
+    trip.points.forEach((p) => { const d = haversine(p[0], p[1], latlng.lat, latlng.lng); if (d < bestD) { bestD = d; best = p; } });
+    const start = best ? best[2] : Date.now();
+    $('stayName').value = '';
+    $('stayStart').value = toLocalInput(start);
+    $('stayEnd').value = toLocalInput(start + 30 * 60000);
+    const dlg = $('stayDialog');
+    dlg.onclose = () => {
+      if (dlg.returnValue !== 'ok') return;
+      const s = Date.parse($('stayStart').value), e = Date.parse($('stayEnd').value);
+      if (!(e > s)) return toast('離開時間必須晚於抵達時間');
+      const name = $('stayName').value.trim();
+      const stay = { lat: +latlng.lat.toFixed(6), lng: +latlng.lng.toFixed(6), start: s, end: e, manual: true };
+      if (name) Object.assign(stay, { name, local: null, custom: true });
+      trip.stays = [...(trip.stays || []), stay].sort((x, y) => x.start - y.start);
+      drawTrip(trip); save(); queueResolve(trip); renderTripList();
+      toast('已新增停留點');
+    };
+    dlg.returnValue = '';
+    dlg.showModal();
+  }
+  function renameStay(trip, s) {
+    const v = prompt('停留點名稱（清空則重新自動查詢）', s.name || '');
+    if (v === null) return;
+    if (v.trim()) Object.assign(s, { name: v.trim(), local: null, custom: true, failed: false });
+    else { delete s.name; delete s.local; delete s.custom; s.failed = false; }
+    drawTrip(trip); save(); queueResolve(trip); renderTripList();
+  }
+  function deleteStay(trip, s) {
+    if (!confirm(`刪除停留點「${stayName(s)}」？`)) return;
+    if (s.manual) trip.stays = trip.stays.filter((x) => x !== s);
+    else s.dismissed = true; // 自動偵測的點用標記隱藏，重新計算時才不會又跑出來
+    drawTrip(trip); save(); renderTripList();
+  }
+
+  function cancelModes() {
+    if (draw) { map.removeLayer(draw.layer); draw = null; }
+    pickStay = null;
+    map.getContainer().classList.remove('picking');
+    $('drawBar').hidden = true;
+    $('drawUndo').hidden = $('drawDone').hidden = false;
+  }
+  function onMapClick(e) {
+    if (draw) { draw.pts.push([e.latlng.lat, e.latlng.lng]); updateDrawPreview(); }
+    else if (pickStay) onPickStay(e.latlng);
+  }
+
+  // ---------- 安裝成 App（PWA） ----------
+  function setupPwa() {
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service Worker 註冊失敗', err));
+    }
+    const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      if (!standalone) $('installBox').hidden = false;
+    });
+    window.addEventListener('appinstalled', () => { $('installBox').hidden = true; toast('已安裝！可以從主畫面開啟「足跡地圖」'); });
+    $('btnInstall').addEventListener('click', async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => {});
+      installPrompt = null;
+      $('installBox').hidden = true;
+    });
+  }
 
   // ---------- 頭像 ----------
   function avatarHtml(cls = 'avatar-pin') {
@@ -485,8 +625,9 @@
     if (old) map.removeLayer(old);
     const g = L.featureGroup();
     const ll = (p) => [p[0], p[1]];
-    const { ground, flights, gaps } = segmentsOf(trip);
+    const { ground, manual, flights, gaps } = segmentsOf(trip);
     if (ground.length) L.polyline(ground.map((seg) => seg.map(ll)), { color: trip.color, weight: 5, opacity: 0.85, lineJoin: 'round' }).addTo(g);
+    if (manual.length) L.polyline(manual.map((seg) => seg.map(ll)), { color: trip.color, weight: 4, opacity: 0.85, dashArray: '8 7', lineJoin: 'round' }).bindTooltip('手動補畫').addTo(g);
     if (trip.points.length === 1) L.circleMarker(ll(trip.points[0]), { radius: 5, color: trip.color }).addTo(g);
     gaps.forEach(([a, b]) => L.polyline([ll(a), ll(b)], { color: '#6b7280', weight: 3, dashArray: '2 8', opacity: 0.8 }).bindTooltip('未記錄的移動').addTo(g));
     flights.forEach(([a, b]) => {
@@ -498,7 +639,7 @@
           html: `<svg class="plane-icon" viewBox="0 0 24 24" style="transform:rotate(${arc.angle}rad);color:${trip.color}"><path d="${PLANE_PATH}"/></svg>` }),
       }).bindTooltip(`✈ 飛行 約 ${Math.round(km)} 公里`).addTo(g);
     });
-    (trip.stays || []).forEach((s) => {
+    visibleStays(trip).forEach((s) => {
       L.marker([s.lat, s.lng], { icon: L.divIcon({ className: '', html: avatarHtml(), iconSize: [36, 36], iconAnchor: [18, 18] }), zIndexOffset: 500 })
         .bindTooltip(stayTooltip(s), { permanent: true, direction: 'top', offset: [0, -18], className: 'stay-tip' })
         .addTo(g);
@@ -535,7 +676,11 @@
       const parts = [];
       if (km.ground > 0 || !km.flight) parts.push(`${km.ground.toFixed(2)} 公里`);
       if (km.flight) parts.push(`✈ ${Math.round(km.flight)} 公里`);
-      if (trip.stays?.length) parts.push(`停留 ${trip.stays.length} 處`);
+      const vs = visibleStays(trip);
+      const gaps = trip.flight ? [] : segmentsOf(trip).gaps;
+      const isEditing = editing.has(trip.id);
+      if (vs.length) parts.push(`停留 ${vs.length} 處`);
+      if (gaps.length && !isEditing) parts.push(`<span class="warn">${gaps.length} 段未記錄，按 ✏️ 補畫</span>`);
       li.innerHTML = `
         <div class="row">
           <span class="swatch" style="background:${trip.color}"></span>
@@ -543,29 +688,62 @@
             <div class="name"></div>
             <div class="meta">${parts.join('・')}${live}</div>
           </div>
+          ${trip.flight ? '' : `<button data-act="edit" title="補畫路線／編輯停留點" class="${isEditing ? 'on' : ''}">✏️</button>`}
           <button data-act="toggle" title="顯示/隱藏">${trip.visible ? '👁' : '◌'}</button>
           <button data-act="zoom" title="縮放至此旅程">🔍</button>
           <button data-act="gpx" title="下載 GPX">GPX</button>
           <button data-act="del" title="刪除">🗑</button>
         </div>`;
       li.querySelector('.name').textContent = trip.name;
-      if (trip.stays?.length) {
+      if (vs.length) {
         const ol = document.createElement('ol');
         ol.className = 'stays';
-        trip.stays.forEach((s, i) => {
+        vs.forEach((s) => {
           const item = document.createElement('li');
-          item.innerHTML = `<span class="t">${formatTime(s.start)}</span><span class="n"></span><span class="d">${formatDur(s.end - s.start)}</span>`;
-          item.querySelector('.n').textContent = stayName(s) + (s.local ? `（${s.local}）` : '');
+          item.innerHTML = `<span class="t">${formatTime(s.start)}</span><span class="n"></span><span class="d">${formatDur(s.end - s.start)}</span>`
+            + (isEditing ? '<button data-s="rename" title="改名">✏️</button><button data-s="del" title="刪除">🗑</button>' : '');
+          item.querySelector('.n').textContent = (s.manual ? '✍ ' : '') + stayName(s) + (s.local ? `（${s.local}）` : '');
           item.title = '在地圖上顯示';
-          item.addEventListener('click', () => map.setView([s.lat, s.lng], 17));
+          item.addEventListener('click', (e) => {
+            if (e.target.dataset.s === 'rename') return renameStay(trip, s);
+            if (e.target.dataset.s === 'del') return deleteStay(trip, s);
+            map.setView([s.lat, s.lng], 17);
+          });
           ol.appendChild(item);
         });
         li.appendChild(ol);
       }
+      if (isEditing) {
+        const box = document.createElement('div');
+        box.className = 'edit-box';
+        box.innerHTML = gaps.length
+          ? '<div class="edit-title">未記錄的時段（鎖螢幕或沒訊號）</div>'
+          : '<div class="edit-title hint">這段旅程沒有偵測到中斷。</div>';
+        gaps.forEach(([a, b]) => {
+          const row = document.createElement('div');
+          row.className = 'gap-row';
+          row.innerHTML = `<span>⚠ ${formatTime(a[2])}–${formatTime(b[2])}・${(haversine(a[0], a[1], b[0], b[1]) / 1000).toFixed(1)} 公里</span><button class="primary">補畫</button>`;
+          row.querySelector('button').addEventListener('click', () => startDraw(trip, 'gap', a, b));
+          box.appendChild(row);
+        });
+        const btns = document.createElement('div');
+        btns.className = 'edit-btns';
+        btns.innerHTML = '<button data-e="append">✏️ 從終點接著補畫</button><button data-e="stay">📍 新增停留點</button>';
+        btns.addEventListener('click', (e) => {
+          if (e.target.dataset.e === 'append') startDraw(trip, 'append', trip.points[trip.points.length - 1]);
+          if (e.target.dataset.e === 'stay') startPickStay(trip);
+        });
+        box.appendChild(btns);
+        li.appendChild(box);
+      }
       li.querySelector('.row').addEventListener('click', (e) => {
         const act = e.target.dataset?.act;
         if (!act) return;
-        if (act === 'toggle') {
+        if (act === 'edit') {
+          if (recording?.trip === trip) return toast('記錄中的旅程請先停止記錄再編輯');
+          editing.has(trip.id) ? editing.delete(trip.id) : editing.add(trip.id);
+          renderTripList();
+        } else if (act === 'toggle') {
           trip.visible = !trip.visible;
           trip.visible ? layers.get(trip.id).addTo(map) : map.removeLayer(layers.get(trip.id));
           save(); renderTripList(); updateStats();
@@ -594,7 +772,7 @@
   // ---------- GPX ----------
   function downloadGpx(trip) {
     const pts = trip.points.map((p) => `<trkpt lat="${p[0]}" lon="${p[1]}"><time>${new Date(p[2]).toISOString()}</time></trkpt>`).join('\n');
-    const wpts = (trip.stays || []).map((s) => `<wpt lat="${s.lat}" lon="${s.lng}"><time>${new Date(s.start).toISOString()}</time><name>${escapeXml(stayName(s))}</name><desc>停留 ${formatDur(s.end - s.start)}</desc></wpt>`).join('\n');
+    const wpts = visibleStays(trip).map((s) => `<wpt lat="${s.lat}" lon="${s.lng}"><time>${new Date(s.start).toISOString()}</time><name>${escapeXml(stayName(s))}</name><desc>停留 ${formatDur(s.end - s.start)}</desc></wpt>`).join('\n');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="旅行足跡地圖" xmlns="http://www.topografix.com/GPX/1/1">\n${wpts}\n<trk><name>${escapeXml(trip.name)}</name><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>`;
     downloadBlob(new Blob([xml], { type: 'application/gpx+xml' }), `trip_${fileStamp(trip.points[0]?.[2] || Date.now())}_${trip.id}.gpx`);
   }
@@ -722,8 +900,9 @@
     const plane = new Path2D(PLANE_PATH);
 
     for (const t of visTrips) {
-      const { ground, flights, gaps } = segmentsOf(t);
+      const { ground, manual, flights, gaps } = segmentsOf(t);
       ground.forEach((seg) => strokePath(seg.map((p) => P(p[0], p[1])), t.color, lw));
+      manual.forEach((seg) => strokePath(seg.map((p) => P(p[0], p[1])), t.color, lw * 0.8, [lw * 1.8, lw * 1.6]));
       gaps.forEach(([a, b]) => strokePath([P(a[0], a[1]), P(b[0], b[1])], '#6b7280', lw * 0.6, [lw * 0.5, lw * 2]));
       flights.forEach(([a, b]) => {
         const arc = flightArc(a, b);
@@ -749,7 +928,7 @@
     const fs = Math.max(22, lw * 4.5);
     let no = 0;
     for (const t of visTrips) {
-      for (const st of t.stays || []) {
+      for (const st of visibleStays(t)) {
         no++;
         if (!bounds.contains([st.lat, st.lng])) continue;
         const [x, y] = P(st.lat, st.lng);
@@ -784,7 +963,7 @@
     const W = Math.max(mapCanvas.width + 80, 1400);
     const k = W / 1400; // 依頁面寬度等比放大文字
     const PAD = 40 * k, HEAD = 120 * k, LEG_ROW = 34 * k, STAY_ROW = 30 * k;
-    const stays = visTrips.flatMap((t) => (t.stays || []).map((s) => ({ ...s, color: t.color })));
+    const stays = visTrips.flatMap((t) => visibleStays(t).map((s) => ({ ...s, color: t.color })));
     stays.forEach((s, i) => { s.no = i + 1; });
     const listed = stays.slice(0, 40);
     const legendRows = Math.ceil(visTrips.length / 3);
@@ -858,10 +1037,10 @@
   }
   // 回傳 { ground: 地面移動公里（含未記錄段）, flight: 飛行公里 }
   function tripKm(t) {
-    const { ground, flights, gaps } = segmentsOf(t);
+    const { ground, manual, flights, gaps } = segmentsOf(t);
     const len = (a, b) => haversine(a[0], a[1], b[0], b[1]);
     let g = 0;
-    ground.forEach((seg) => { for (let i = 1; i < seg.length; i++) g += len(seg[i - 1], seg[i]); });
+    [...ground, ...manual].forEach((seg) => { for (let i = 1; i < seg.length; i++) g += len(seg[i - 1], seg[i]); });
     gaps.forEach(([a, b]) => { g += len(a, b); });
     return { ground: g / 1000, flight: flights.reduce((s, [a, b]) => s + len(a, b), 0) / 1000 };
   }
@@ -945,6 +1124,11 @@
       toast(`已重新計算停留點（${settings.minStay} 分鐘以上）`);
     });
 
+    map.on('click', onMapClick);
+    $('drawUndo').addEventListener('click', () => { if (draw?.pts.length) { draw.pts.pop(); updateDrawPreview(); } });
+    $('drawCancel').addEventListener('click', cancelModes);
+    $('drawDone').addEventListener('click', finishDraw);
+    setupPwa();
     renderAvatarPreview();
     trips.forEach((t) => { if (!t.stays) computeStays(t); drawTrip(t); queueResolve(t); });
     renderTripList();

@@ -126,3 +126,43 @@ button:disabled { opacity: .5; cursor: wait; }
   .panel.collapsed .panel-toggle { transform: translateX(-50%) rotate(180deg); }
   .leaflet-bottom.leaflet-right { bottom: 150px; }
 }
+
+/* ---------- 安裝 App ---------- */
+.install-box { display: flex; align-items: center; gap: 8px; background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.install-box span { flex: 1; }
+.install-box button { padding: 6px 14px; }
+
+/* ---------- 補畫 / 編輯 ---------- */
+#map.picking, #map.picking .leaflet-interactive { cursor: crosshair; }
+.draw-bar {
+  position: fixed; z-index: 1100; left: 50%; transform: translateX(-50%);
+  top: calc(76px + env(safe-area-inset-top)); width: min(560px, calc(100% - 24px));
+  background: #111827; color: #fff; border-radius: 14px; box-shadow: var(--shadow); padding: 10px 12px;
+}
+.draw-text { font-size: 14px; line-height: 1.4; }
+.draw-end { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
+.draw-end input { flex: 1; padding: 4px 6px; border-radius: 6px; border: 0; }
+.draw-btns { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+.draw-btns button { padding: 6px 12px; }
+.warn { color: #b45309; }
+#tripList button.on { background: #fef3c7; border-color: #f59e0b; }
+#tripList .stays li button { padding: 0 4px; font-size: 11px; line-height: 18px; }
+.edit-box { margin: 8px 0 2px 20px; padding: 8px; background: #fffbeb; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+.edit-title { font-size: 12px; font-weight: 600; color: #92400e; }
+.edit-title.hint { color: var(--muted); font-weight: 400; }
+.gap-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.gap-row span { flex: 1; }
+.gap-row button { padding: 3px 10px; font-size: 12px; }
+.edit-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.edit-btns button { flex: 1; font-size: 12px; padding: 6px; }
+
+dialog { border: 0; border-radius: 14px; padding: 16px; width: min(360px, calc(100% - 32px)); box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(0, 0, 0, .35); }
+dialog h3 { margin: 0 0 12px; font-size: 16px; }
+dialog label { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 14px; }
+dialog input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.dialog-btns { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* 安裝成 App 後避開狀態列 */
+.topbar { top: calc(12px + env(safe-area-inset-top)); }
+@media (max-width: 640px) { .topbar { top: calc(8px + env(safe-area-inset-top)); } }
